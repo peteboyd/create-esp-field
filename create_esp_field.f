@@ -10,7 +10,7 @@
 
       integer n_grid(n_dim), n_atoms, atom_index(n_atoms_max),
      & NMAX(n_dim)
-      common/int_general/n_grid, n_atoms, atom_index, NMAX
+      common/int_general/n_grid, atom_index, NMAX
 
       double precision axis_zero(n_dim), axis_vector(n_dim,n_dim),
      & real_box_vector(n_dim,n_dim), 
@@ -28,6 +28,7 @@ c     in atomic units (hartree*bohr/e)
       parameter(k_esp=1.d0/(4.d0*pi*perm)) 
 c     Daniele's chioce to add an aditional space outside of the vdw
 c     radii to ignore ESP contribution (in Angstrom)
+      double precision DO_FACTOR
       parameter(DO_FACTOR=1.5)
 !-----Input section
       integer flag_cutoff, fit_RESP, symm_flag, const_flag, 
@@ -56,7 +57,7 @@ c     radii to ignore ESP contribution (in Angstrom)
 
 !-----Variables related to VDW params
       double precision vdw_radii(n_atoms_max)
-      common/vdws_dbl/vdw_radii
+      common/vdws_dbl
 
 c     WARNING: Setting lenrec too high (eg 256) results in
 c     undefined behaviour when performing string manipulation
@@ -119,7 +120,7 @@ c     get filename from command line
 c      call process_cube(q_part)
 c      call process_box
       call getcell(alen,blen,clen,al,beta,gamma)
-      call VDW_radii_array(atom_number, vdw_radii, n_atoms)
+      call VDW_radii_array(atom_number,vdw_radii)
       
       do i=1,natms
         if((xfrac).and.(yfrac).and.(zfrac))then
@@ -197,6 +198,7 @@ c       write(*,*) "# of cells in",j_dim, "direction: ", NMAX(j_dim)
              endif
            end do 
          endif
+        end do
        end do
       end do
 
@@ -1210,7 +1212,7 @@ c               atom entries
                             zfrac=.true. 
                             atom_pos_frac(iatm,3) = 
      &dblstr(cjunk,lenrec,idum)
-                         else if
+                         else
                             atom_pos(iatm,3) = dblstr(cjunk,lenrec,idum)
                          end if
                       else if ((findstring('atom', loopatom(i), idum))
@@ -1916,13 +1918,11 @@ c*********************************************************************
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !-----Subroutine that assigns the van der Waals radii for the
 !-----elements found in the cube file according to the UFF tabulation 
-      subroutine VDW_radii_array(atoms_array,vdw_radii,n_atoms)
-      include "REPEAT_fit_variables.com" 
+      subroutine VDW_radii_array(atoms_array,vdw_radii)
+      include "REPEAT_Qmu_variables.com"
+      integer atoms_array(n_atoms_max), i
 
-      integer atoms_array(n_atoms_max), i, n_atoms
-
-      double precision vdw_radii(n_atoms_max),
-     & vdw_radii_file(n_atoms_type_max) 
+      double precision vdw_radii_file(n_atoms_type_max) 
 
 !-----Hardcore tabulation taken from the UFF with
 !-----the VDW radii for the elements in the periodic table
