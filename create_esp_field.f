@@ -26,6 +26,9 @@ c     Units from : http://folk.uio.no/michalj/node72.html
       parameter(perm=0.07957747154594767)
 c     in atomic units (hartree*bohr/e)
       parameter(k_esp=1.d0/(4.d0*pi*perm)) 
+c     Daniele's chioce to add an aditional space outside of the vdw
+c     radii to ignore ESP contribution (in Angstrom)
+      parameter(DO_FACTOR=1.5)
 !-----Input section
       integer flag_cutoff, fit_RESP, symm_flag, const_flag, 
      & q_tot(4)
@@ -74,19 +77,21 @@ c     in the cif file.
       integer natms, idum, ind 
       double precision, allocatable :: q_part(:)
       double precision, allocatable, dimension(:,:) :: atom_pos
+      double precision, allocatable, dimension(:,:) :: atom_pos_frac
       double precision q_part_max, tmpx,tmpy,tmpz,
      & L_box(n_dim), grid_pos(n_dim), atom_pos_tmp(n_dim),
      & delta_dist(n_dim), Phi_sum, Phi_real, Phi_recp, dist, q_sum,
-     & grid_spacing
+     & grid_spacing, delta_fdist(n_dim), grid_pos_frac(n_dim)
       real(8) alen,blen,clen,al,beta,gamma
       character*1 record(lenrec)
       double precision, allocatable, dimension(:,:,:) :: V_coul
+      integer, allocatable, dimension(:,:,:) :: V_flag
       real(8) time,ftime,etime
       character*4 p
 
       character(len=100) :: arg,ciffile
       save record,mass,atom,atmname,rootname
-      save loopatom,q_part,atom_number, V_coul
+      save loopatom,q_part,atom_number, V_coul, V_flag
 c$$$      seed = 159463
 c$$$      q_part_max = 20.0
       R_cutoff = 20.
@@ -103,27 +108,30 @@ c     get filename from command line
 
       call getarg(2, arg)
       grid_spacing=dblstr(arg, 100, idum)
-      call scancif(ncif, ciffile, natms, loopcount)
-      allocate(atom_pos(natms,n_dim),atom(natms),atom_number(natms))
-      allocate(q_part(natms),mass(natms),atmname(natms))
-      call readcif(ncif,ciffile,natms,loopcount,
+      call scancif(ncif, ciffile, n_atoms, loopcount)
+      allocate(atom_pos(n_atoms,n_dim),atom(n_atoms),
+     &atom_number(n_atoms))
+      allocate(atom_pos_frac(n_atoms,n_dim))
+      allocate(q_part(n_atoms),mass(n_atoms),atmname(n_atoms))
+      call readcif(ncif,ciffile,n_atoms,loopcount,
      & alen,blen,clen,al,beta,gamma,title,xfrac,yfrac,zfrac)
       call getroot(ciffile,ind)
 c      call process_cube(q_part)
 c      call process_box
       call getcell(alen,blen,clen,al,beta,gamma)
+      call VDW_radii_array(atom_number, vdw_radii, n_atoms)
       
       do i=1,natms
         if((xfrac).and.(yfrac).and.(zfrac))then
-            tmpx = atom_pos(i,1)*real_box_vector(1,1) + 
-     &             atom_pos(i,2)*real_box_vector(2,1) +
-     &             atom_pos(i,3)*real_box_vector(3,1)
-            tmpy = atom_pos(i,1)*real_box_vector(1,2) + 
-     &             atom_pos(i,2)*real_box_vector(2,2) +
-     &             atom_pos(i,3)*real_box_vector(3,2)
-            tmpz = atom_pos(i,1)*real_box_vector(1,3) + 
-     &             atom_pos(i,2)*real_box_vector(2,3) +
-     &             atom_pos(i,3)*real_box_vector(3,3)
+            tmpx = atom_pos_frac(i,1)*real_box_vector(1,1) + 
+     &             atom_pos_frac(i,2)*real_box_vector(2,1) +
+     &             atom_pos_frac(i,3)*real_box_vector(3,1)
+            tmpy = atom_pos_frac(i,1)*real_box_vector(1,2) + 
+     &             atom_pos_frac(i,2)*real_box_vector(2,2) +
+     &             atom_pos_frac(i,3)*real_box_vector(3,2)
+            tmpz = atom_pos_frac(i,1)*real_box_vector(1,3) + 
+     &             atom_pos_frac(i,2)*real_box_vector(2,3) +
+     &             atom_pos_frac(i,3)*real_box_vector(3,3)
             atom_pos(i,1) = tmpx
             atom_pos(i,2) = tmpy
             atom_pos(i,3) = tmpz
@@ -151,11 +159,44 @@ c       write(*,*) "# of cells in",j_dim, "direction: ", NMAX(j_dim)
       end do
 
       allocate (V_coul(n_grid(1),n_grid(2),n_grid(3))) 
+      allocate (V_flag(n_grid(1),n_grid(2),n_grid(3))) 
       do k=1, n_grid(3)
        do j=1, n_grid(2)
         do i=1, n_grid(1)
          V_coul(i,j,k) = 0.d0
-        end do 
+         V_flag(i,j,k) = 1
+         if(DO_FACTOR.ne.0)then
+           ! flag if not to compute ESP at this grid point
+           grid_pos_frac(1) = dble(i-1)/dble(n_grid(1))
+           grid_pos_frac(2) = dble(j-1)/dble(n_grid(2))
+           grid_pos_frac(3) = dble(k-1)/dble(n_grid(3)) 
+           do i_atom=1, natms
+             delta_fdist(1) = grid_pos_frac(1)-atom_pos_frac(i_atom, 1)
+             delta_fdist(2) = grid_pos_frac(2)-atom_pos_frac(i_atom, 2)
+             delta_fdist(3) = grid_pos_frac(3)-atom_pos_frac(i_atom, 3)
+             ! shift by pbc
+             delta_fdist(1) = delta_fdist(1)-dble(nint(delta_fdist(1)))
+             delta_fdist(2) = delta_fdist(2)-dble(nint(delta_fdist(2)))
+             delta_fdist(3) = delta_fdist(3)-dble(nint(delta_fdist(3)))
+
+             ! compute cartesian
+             dist=0.d0
+             do i_dim=1, 3
+              delta_dist(i_dim) = 
+     &           delta_fdist(1)*real_box_vector(1,i_dim)+
+     &           delta_fdist(2)*real_box_vector(2,i_dim)+
+     &           delta_fdist(3)*real_box_vector(3,i_dim)
+             ! atom_pos_tmp(i_dim) = atom_pos(i_atom,i_dim)
+             ! delta_dist(i_dim) = grid_pos(i_dim) - atom_pos_tmp(i_dim)
+                 dist = dist + delta_dist(i_dim)**2
+             end do
+             ! check for nearby atoms
+             dist = sqrt(dist)
+             if(dist.le.(vdw_radii(i_atom)+DO_FACTOR))then
+               V_flag(i,j,k)=0
+             endif
+           end do 
+         endif
        end do
       end do
 
@@ -163,22 +204,43 @@ c       write(*,*) "# of cells in",j_dim, "direction: ", NMAX(j_dim)
       do k=1, n_grid(3)
        do j=1, n_grid(2)
         do i=1, n_grid(1)
-         do i_dim=1, 3
-          grid_pos(i_dim) = ((i-1)*axis_vector(1,i_dim) + 
-     &   (j-1)*axis_vector(2,i_dim) + (k-1)*axis_vector(3,i_dim)) 
-         end do
-         do i_atom=1, natms
-          do i_dim=1, 3
-           atom_pos_tmp(i_dim) = atom_pos(i_atom,i_dim)
-           delta_dist(i_dim) = grid_pos(i_dim) - atom_pos_tmp(i_dim)
-          end do             
-!--------Creating a file with the Coulomb potential for testing purposes
-          call Ewald_recp_sum(0,1,delta_dist,Phi_recp)
-          call Ewald_real_sum(0,1,grid_pos,atom_pos_tmp,Phi_real)  
-          Phi_sum = Phi_real + Phi_recp 
-          V_coul(i,j,k) = V_coul(i,j,k) + q_part(i_atom)*Phi_sum*k_esp
-         end do 
-        end do
+          if(V_flag(i,j,k).eq.1)then
+            do i_dim=1, 3
+              grid_pos(i_dim) = ((i-1)*axis_vector(1,i_dim) + 
+     &      (j-1)*axis_vector(2,i_dim) + (k-1)*axis_vector(3,i_dim))
+            end do
+            grid_pos_frac(1) = dble(i-1)/dble(n_grid(1))
+            grid_pos_frac(2) = dble(j-1)/dble(n_grid(2))
+            grid_pos_frac(3) = dble(k-1)/dble(n_grid(3)) 
+            do i_atom=1, natms
+              delta_fdist(1) = grid_pos_frac(1)-atom_pos_frac(i_atom,1)
+              delta_fdist(2) = grid_pos_frac(2)-atom_pos_frac(i_atom,2)
+              delta_fdist(3) = grid_pos_frac(3)-atom_pos_frac(i_atom,3)
+              ! shift by pbc
+              delta_fdist(1) = delta_fdist(1)-dble(nint(delta_fdist(1)))
+              delta_fdist(2) = delta_fdist(2)-dble(nint(delta_fdist(2)))
+              delta_fdist(3) = delta_fdist(3)-dble(nint(delta_fdist(3)))
+
+              ! compute cartesian
+              dist=0.d0
+              do i_dim=1, 3
+               delta_dist(i_dim) = 
+     &            delta_fdist(1)*real_box_vector(1,i_dim)+
+     &            delta_fdist(2)*real_box_vector(2,i_dim)+
+     &            delta_fdist(3)*real_box_vector(3,i_dim)
+                  atom_pos_tmp(i_dim) = atom_pos(i_atom,i_dim)
+              ! delta_dist(i_dim) = grid_pos(i_dim) - atom_pos_tmp(i_dim)
+              end do
+!--------   Creating a file with the Coulomb potential for testing purposes
+              call Ewald_recp_sum(0,1,delta_dist,Phi_recp)
+              call Ewald_real_sum(0,1,grid_pos,atom_pos_tmp,Phi_real)
+              ! TODO(pboyd): add self interaction correction.
+              Phi_sum = Phi_real + Phi_recp 
+              V_coul(i,j,k) = V_coul(i,j,k) + q_part(i_atom)*Phi_sum*
+     &k_esp
+            enddo
+          endif
+        end do 
        end do
       end do
       call timchk(1,etime)
@@ -1032,7 +1094,7 @@ c                    write(*,*)record
       return
       end subroutine scancif
 
-      subroutine readcif(ncif,ciffile,natms,loopcount,
+      subroutine readcif(ncif,ciffile,n_atoms,loopcount,
      & alen,blen,clen,alpha,beta,gamma,title,xfrac,yfrac,zfrac)
 c*********************************************************************
 c
@@ -1042,7 +1104,7 @@ c*********************************************************************
       implicit none
       logical done,safe,loopchk,atmchk,entrychk
       logical xfrac, yfrac, zfrac
-      integer ncif,natms,iatm,idum,loop_count
+      integer ncif,n_atoms,iatm,idum,loop_count
       integer i,ijunk,rmkcnt,loopcount
       real(8) xcoord,ycoord,zcoord,charge, rjunk
       real(8) alen,blen,clen,alpha,beta,gamma
@@ -1126,22 +1188,31 @@ c               atom entries
      &                   (findstring('_x', loopatom(i), idum)))then
                          if (findstring('frac', loopatom(i),idum))then
                             xfrac=.true.
+                            atom_pos_frac(iatm,1) = 
+     &dblstr(cjunk,lenrec,idum)
+                         else
+                            atom_pos(iatm,1) = dblstr(cjunk,lenrec,idum)
                          end if
-                         atom_pos(iatm,1) = dblstr(cjunk,lenrec,idum)
                       else if ((findstring('atom', loopatom(i), idum))
      &                   .and.
      &                   (findstring('_y', loopatom(i), idum)))then
                          if (findstring('frac', loopatom(i),idum))then
                             yfrac=.true. 
+                            atom_pos_frac(iatm,2) = 
+     &dblstr(cjunk,lenrec,idum)
+                         else
+                            atom_pos(iatm,2) = dblstr(cjunk,lenrec,idum)
                          end if
-                         atom_pos(iatm,2) = dblstr(cjunk,lenrec,idum)
                       else if ((findstring('atom', loopatom(i), idum))
      &                   .and.
      &                   (findstring('_z', loopatom(i), idum)))then
                          if (findstring('frac', loopatom(i),idum))then
                             zfrac=.true. 
+                            atom_pos_frac(iatm,3) = 
+     &dblstr(cjunk,lenrec,idum)
+                         else if
+                            atom_pos(iatm,3) = dblstr(cjunk,lenrec,idum)
                          end if
-                         atom_pos(iatm,3) = dblstr(cjunk,lenrec,idum)
                       else if ((findstring('atom', loopatom(i), idum))
      &                   .and.
      &                   (findstring('symbol', loopatom(i), idum)))then
@@ -1165,7 +1236,6 @@ c               atom entries
         end if
         if(.not.safe)done=.true.
       end do
-
       close(ncif)
       
       return
@@ -1843,6 +1913,132 @@ c*********************************************************************
       enddo
       return
       end subroutine getroot
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!-----Subroutine that assigns the van der Waals radii for the
+!-----elements found in the cube file according to the UFF tabulation 
+      subroutine VDW_radii_array(atoms_array,vdw_radii,n_atoms)
+      include "REPEAT_fit_variables.com" 
+
+      integer atoms_array(n_atoms_max), i, n_atoms
+
+      double precision vdw_radii(n_atoms_max),
+     & vdw_radii_file(n_atoms_type_max) 
+
+!-----Hardcore tabulation taken from the UFF with
+!-----the VDW radii for the elements in the periodic table
+!-----ordered according to their atomic number
+!-----UNITS ARE IN BOHR
+      vdw_radii_file(1) = 2.72687
+      vdw_radii_file(2) = 2.23177
+      vdw_radii_file(3) = 2.31586
+      vdw_radii_file(4) = 2.59365
+      vdw_radii_file(5) = 3.85788
+      vdw_radii_file(6) = 3.63867
+      vdw_radii_file(7) = 3.4582
+      vdw_radii_file(8) = 3.30702
+      vdw_radii_file(9) = 3.17852
+      vdw_radii_file(10) = 3.06419
+      vdw_radii_file(11) = 2.81853
+      vdw_radii_file(12) = 2.85443
+      vdw_radii_file(13) = 4.25094
+      vdw_radii_file(14) = 4.05819
+      vdw_radii_file(15) = 3.91835
+      vdw_radii_file(16) = 3.81252
+      vdw_radii_file(17) = 3.72937
+      vdw_radii_file(18) = 3.65473
+      vdw_radii_file(19) = 3.60182
+      vdw_radii_file(20) = 3.21159
+      vdw_radii_file(21) = 3.11332
+      vdw_radii_file(22) = 2.99994
+      vdw_radii_file(23) = 2.97065
+      vdw_radii_file(24) = 2.85632
+      vdw_radii_file(25) = 2.79774
+      vdw_radii_file(26) = 2.75144
+      vdw_radii_file(27) = 2.71365
+      vdw_radii_file(28) = 2.67774
+      vdw_radii_file(29) = 3.3023
+      vdw_radii_file(30) = 2.61066
+      vdw_radii_file(31) = 4.14133
+      vdw_radii_file(32) = 4.04401
+      vdw_radii_file(33) = 3.99677
+      vdw_radii_file(34) = 3.97315
+      vdw_radii_file(35) = 3.95803
+      vdw_radii_file(36) = 3.91268
+      vdw_radii_file(37) = 3.88717
+      vdw_radii_file(38) = 3.44025
+      vdw_radii_file(39) = 3.16057
+      vdw_radii_file(40) = 2.95175
+      vdw_radii_file(41) = 2.99049
+      vdw_radii_file(42) = 2.88372
+      vdw_radii_file(43) = 2.8327
+      vdw_radii_file(44) = 2.79963
+      vdw_radii_file(45) = 2.7675
+      vdw_radii_file(46) = 2.73916
+      vdw_radii_file(47) = 2.97443
+      vdw_radii_file(48) = 2.69097
+      vdw_radii_file(49) = 4.21692
+      vdw_radii_file(50) = 4.14984
+      vdw_radii_file(51) = 4.17629
+      vdw_radii_file(52) = 4.22354
+      vdw_radii_file(53) = 4.25188
+      vdw_radii_file(54) = 4.16118
+      vdw_radii_file(55) = 4.26795
+      vdw_radii_file(56) = 3.49883
+      vdw_radii_file(57) = 3.32781
+      vdw_radii_file(58) = 3.35993
+      vdw_radii_file(59) = 3.40718
+      vdw_radii_file(60) = 3.37789
+      vdw_radii_file(61) = 3.35143
+      vdw_radii_file(62) = 3.32592
+      vdw_radii_file(63) = 3.30041
+      vdw_radii_file(64) = 3.1823
+      vdw_radii_file(65) = 3.26072
+      vdw_radii_file(66) = 3.23899
+      vdw_radii_file(67) = 3.22104
+      vdw_radii_file(68) = 3.20403
+      vdw_radii_file(69) = 3.18797
+      vdw_radii_file(70) = 3.17002
+      vdw_radii_file(71) = 3.4393
+      vdw_radii_file(72) = 2.96781
+      vdw_radii_file(73) = 2.99522
+      vdw_radii_file(74) = 2.89978
+      vdw_radii_file(75) = 2.79113
+      vdw_radii_file(76) = 2.94797
+      vdw_radii_file(77) = 2.68341
+      vdw_radii_file(78) = 2.60215
+      vdw_radii_file(79) = 3.11143
+      vdw_radii_file(80) = 2.55585
+      vdw_radii_file(81) = 4.10732
+      vdw_radii_file(82) = 4.06008
+      vdw_radii_file(83) = 4.12905
+      vdw_radii_file(84) = 4.44936
+      vdw_radii_file(85) = 4.4881
+      vdw_radii_file(86) = 4.50227
+      vdw_radii_file(87) = 4.62983
+      vdw_radii_file(88) = 3.47426
+      vdw_radii_file(89) = 3.28623
+      vdw_radii_file(90) = 3.20875
+      vdw_radii_file(91) = 3.23521
+      vdw_radii_file(92) = 3.20781
+      vdw_radii_file(93) = 3.23521
+      vdw_radii_file(94) = 3.23521
+      vdw_radii_file(95) = 3.19458
+      vdw_radii_file(96) = 3.14261
+      vdw_radii_file(97) = 3.1549
+      vdw_radii_file(98) = 3.13033
+      vdw_radii_file(99) = 3.1171
+      vdw_radii_file(100) = 3.10482
+      vdw_radii_file(101) = 3.09348
+      vdw_radii_file(102) = 3.06892
+      vdw_radii_file(103) = 3.05758
+
+!-----Assigning the corresponding VDW radii to the elements found in
+!-----the ESP cube file
+      do i=1, n_atoms
+       vdw_radii(i) =  vdw_radii_file(atoms_array(i))
+      end do
+
+      end subroutine
 c######################################################################
 c   END OF PROGRAM
 c######################################################################
