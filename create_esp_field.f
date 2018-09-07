@@ -37,6 +37,7 @@ c     radii to ignore ESP contribution (in Angstrom)
      & q_tot
       double precision vdw_fact, R_cutoff
       common/dbl_input/vdw_fact, R_cutoff
+      double precision vdw_radii(n_atoms_max)
 
       character*1, allocatable :: rootname(:)
       character(len=70) file_name
@@ -54,10 +55,6 @@ c     radii to ignore ESP contribution (in Angstrom)
 !-----Process recp space section
       double precision alpha
       common/dbl_reciprocal/alpha
-
-!-----Variables related to VDW params
-      double precision vdw_radii(n_atoms_max)
-      common/vdws_dbl
 
 c     WARNING: Setting lenrec too high (eg 256) results in
 c     undefined behaviour when performing string manipulation
@@ -81,9 +78,11 @@ c     in the cif file.
       double precision, allocatable, dimension(:,:) :: atom_pos_frac
       double precision q_part_max, tmpx,tmpy,tmpz,
      & L_box(n_dim), grid_pos(n_dim), atom_pos_tmp(n_dim),
-     & delta_dist(n_dim), Phi_sum, Phi_real, Phi_recp, dist, q_sum,
-     & grid_spacing, delta_fdist(n_dim), grid_pos_frac(n_dim)
-      real(8) alen,blen,clen,al,beta,gamma
+     & delta_dist(n_dim), Phi_sum, Phi_real, Phi_recp, Phi_SIC,
+     & Phi_EXCL, adf, bdf, cdf, xdf, ydf, zdf,
+     & dist, q_sum, grid_spacing, delta_fdist(n_dim), 
+     & grid_pos_frac(n_dim)
+      real(8) alen,blen,clen,alph,beta,gamma
       character*1 record(lenrec)
       double precision, allocatable, dimension(:,:,:) :: V_coul
       integer, allocatable, dimension(:,:,:) :: V_flag
@@ -115,13 +114,14 @@ c     get filename from command line
       allocate(atom_pos_frac(n_atoms,n_dim))
       allocate(q_part(n_atoms),mass(n_atoms),atmname(n_atoms))
       call readcif(ncif,ciffile,n_atoms,loopcount,
-     & alen,blen,clen,al,beta,gamma,title,xfrac,yfrac,zfrac)
+     & alen,blen,clen,alph,beta,gamma,title,xfrac,yfrac,zfrac)
       call getroot(ciffile,ind)
 c      call process_cube(q_part)
 c      call process_box
-      call getcell(alen,blen,clen,al,beta,gamma)
+      call getcell(alen,blen,clen,alph,beta,gamma)
       call VDW_radii_array(atom_number,vdw_radii)
-      
+      Phi_SIC = 0.d0
+      Phi_EXCL = 0.d0
       do i=1,natms
         if((xfrac).and.(yfrac).and.(zfrac))then
             tmpx = atom_pos_frac(i,1)*real_box_vector(1,1) + 
@@ -137,7 +137,37 @@ c      call process_box
             atom_pos(i,2) = tmpy
             atom_pos(i,3) = tmpz
         end if
+        ! compute EWALD SIC terms
+        Phi_SIC = Phi_SIC + q_part(i)*q_part(i)
+        ! compute EWALD Excluded atom terms
+        do j = 1, i-1
+          ! compute distance in fractional coordinates
+          adf = atom_pos_frac(i,1) - atom_pos_frac(j,1)
+          bdf = atom_pos_frac(i,2) - atom_pos_frac(j,2)
+          cdf = atom_pos_frac(i,3) - atom_pos_frac(j,3)
+
+          ! find minimum image distance
+          adf = adf - dble(nint(adf))
+          bdf = bdf - dble(nint(bdf))
+          cdf = cdf - dble(nint(cdf))
+
+          ! convert to cartesian
+          xdf = adf*real_box_vector(1,1) + 
+     &          bdf*real_box_vector(2,1) +
+     &          cdf*real_box_vector(3,1)
+          ydf = adf*real_box_vector(1,2) + 
+     &          bdf*real_box_vector(2,2) +
+     &          cdf*real_box_vector(3,2)
+          zdf = adf*real_box_vector(1,3) + 
+     &          bdf*real_box_vector(2,3) +
+     &          cdf*real_box_vector(3,3)
+          dist = sqrt(xdf*xdf + ydf*ydf + zdf*zdf)
+
+          call Ewald_excl_term(q_part(i),q_part(j),dist,Phi_EXCL)
+
+        end do
       end do
+      Phi_SIC = Phi_SIC*k_esp
       write(*,'(a,3f12.6)')"Exact spacing of grid points = ",
      &alen/n_grid(1),
      &blen/n_grid(2), 
@@ -183,13 +213,13 @@ c       write(*,*) "# of cells in",j_dim, "direction: ", NMAX(j_dim)
              ! compute cartesian
              dist=0.d0
              do i_dim=1, 3
-              delta_dist(i_dim) = 
+               delta_dist(i_dim) = 
      &           delta_fdist(1)*real_box_vector(1,i_dim)+
      &           delta_fdist(2)*real_box_vector(2,i_dim)+
      &           delta_fdist(3)*real_box_vector(3,i_dim)
-             ! atom_pos_tmp(i_dim) = atom_pos(i_atom,i_dim)
-             ! delta_dist(i_dim) = grid_pos(i_dim) - atom_pos_tmp(i_dim)
-                 dist = dist + delta_dist(i_dim)**2
+             !  atom_pos_tmp(i_dim) = atom_pos(i_atom,i_dim)
+             !  delta_dist(i_dim) = grid_pos(i_dim) - atom_pos_tmp(i_dim)
+               dist = dist + delta_dist(i_dim)**2
              end do
              ! check for nearby atoms
              dist = sqrt(dist)
@@ -237,10 +267,13 @@ c       write(*,*) "# of cells in",j_dim, "direction: ", NMAX(j_dim)
               call Ewald_recp_sum(0,1,delta_dist,Phi_recp)
               call Ewald_real_sum(0,1,grid_pos,atom_pos_tmp,Phi_real)
               ! TODO(pboyd): add self interaction correction.
-              Phi_sum = Phi_real + Phi_recp 
-              V_coul(i,j,k) = V_coul(i,j,k) + q_part(i_atom)*Phi_sum*
-     &k_esp
+              ! TODO(pboyd): remove interactions between MOF atoms in
+              ! RECP sum.
+
+              Phi_sum = q_part(i_atom)*(Phi_real + Phi_recp)*k_esp
+              V_coul(i,j,k) = V_coul(i,j,k) + Phi_sum
             enddo
+            V_coul(i,j,k) = V_coul(i,j,k) - Phi_SIC - Phi_EXCL
           endif
         end do 
        end do
@@ -686,7 +719,7 @@ c***********************************************************************
       implicit none
       integer TOTK, KX, KY, KZ, KSQ, term_flag, input_dim
 
-      double precision RX, RY, RZ, FACTOR, Phi, delta_r(n_dim), RKvec 
+      double precision RX, RY, RZ, FACTOR, Phi, delta_r(n_dim), RKvec
 
       COMPLEX EIKX(0:KMAX), EIKY(-KMAX:KMAX), EIKZ(-KMAX:KMAX), EIKR
 
@@ -802,6 +835,35 @@ c***********************************************************************
 
       end subroutine
 
+      subroutine Ewald_excl_term(qi,qj,dist,Phi_EXCL)
+      implicit none
+      double precision qi,qj,dist,Phi_EXCL
+      double precision alpr, alpr2, erfr, chgprd, exp1
+      double precision a1, a2, a3, a4, a5, pp
+      double precision rr3, r10, r42, r216, tt
+
+      data a1,a2,a3/0.254829592d0,-0.284496736d0,1.421413741d0/
+      data a4,a5,pp/-1.453152027d0,1.061405429d0,0.3275911d0/
+      data rr3/0.333333333333d0/,r10/0.1d0/,r42/0.02380952381d0/
+      data r216/4.62962962963d-3/
+      alpr=dist*alpha
+      alpr2 = alpr*alpr
+      chgprd = qi*qj * k_esp
+      if(alpr.lt.1.d-2)then
+
+          erfr = 2.d0*chgprd*(alpha/pi/pi)*
+     &(1.d0+alpr2*(-rr3+alpr2*(r10+alpr2*(-r42+alpr2*r216))))
+
+      else
+          tt=1.d0/(1.d0 + pp*alpr)
+          exp1 = exp(-(alpr)**2)
+          erfr = (1.d0-tt*(a1+tt*(a2+tt*(a3+tt*(a4+tt*a5))))*exp1)*
+     &             chgprd/dist
+      endif
+      Phi_EXCL = Phi_EXCL + erfr
+      return  
+
+      end subroutine
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !-----Complementary error function
       double precision function erfc(X)
@@ -1097,7 +1159,7 @@ c                    write(*,*)record
       end subroutine scancif
 
       subroutine readcif(ncif,ciffile,n_atoms,loopcount,
-     & alen,blen,clen,alpha,beta,gamma,title,xfrac,yfrac,zfrac)
+     & alen,blen,clen,alph,beta,gamma,title,xfrac,yfrac,zfrac)
 c*********************************************************************
 c
 c     routine to read cif files and store all the values in memory 
@@ -1109,7 +1171,7 @@ c*********************************************************************
       integer ncif,n_atoms,iatm,idum,loop_count
       integer i,ijunk,rmkcnt,loopcount
       real(8) xcoord,ycoord,zcoord,charge, rjunk
-      real(8) alen,blen,clen,alpha,beta,gamma
+      real(8) alen,blen,clen,alph,beta,gamma
       character*8 atm,atmn
       character(len=lenrec) cjunk
       character*1 title(80)
@@ -1146,7 +1208,7 @@ c        call lowcase(record,7)
           clen=dblstr(record,lenrec,idum)
         elseif(findstring('_cell_angle_alpha',record,idum))then
           call getword(cjunk,record,17,lenrec)  
-          alpha=dblstr(record,lenrec,idum)
+          alph=dblstr(record,lenrec,idum)
         elseif(findstring('_cell_angle_beta',record,idum))then
           call getword(cjunk,record,16,lenrec)  
           beta=dblstr(record,lenrec,idum)
@@ -1470,12 +1532,12 @@ c***********************************************************************
       return
       end subroutine lowcase
        
-      subroutine getcell(alen,blen,clen,alpha,beta,gam) 
+      subroutine getcell(alen,blen,clen,alph,beta,gam) 
 c***********************************************************************
 c     
 c     routine to convert to cell vectors 
 c     from alen,blen,clen
-c     alpha = angle between b and c
+c     alph = angle between b and c
 c     beta  = angle between a and c
 c     gamma = angle between a and b
 c
@@ -1485,14 +1547,14 @@ c***********************************************************************
       real(8), parameter :: deg2rad=0.0174532925d0
       real(8), parameter :: rad2deg=57.2957795d0
       real(8), parameter :: pi=3.141592653589793d0
-      real(8) alen,blen,clen,alpha,beta,gam
+      real(8) alen,blen,clen,alph,beta,gam
       real(8) pr
       real(8), dimension(3) :: avec,bvec,cvec,v1,v2,v3
       double precision a(n_dim), b(n_dim), c(n_dim), ab(n_dim),
      & r(n_dim), cross_tmp(n_dim), signo, dot, dot_1,
      & cross_tmp_1(n_dim)
 
-      alpha=alpha*deg2rad
+      alph=alph*deg2rad
       beta=beta*deg2rad
       gam=gam*deg2rad
 c     the a axis is oriented to the xaxis
@@ -1511,7 +1573,7 @@ c     start with orthogonal basis
 
       bvec=dsin(gam)*v2+dcos(gam)*v1
 
-      pr=(dcos(alpha)-dcos(gam)*dcos(beta))/dsin(gam)
+      pr=(dcos(alph)-dcos(gam)*dcos(beta))/dsin(gam)
 
       cvec=v3*sqrt(1-dcos(beta)**2-pr**2)
      &+dcos(beta)*v1+pr*v2
@@ -1918,9 +1980,9 @@ c*********************************************************************
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !-----Subroutine that assigns the van der Waals radii for the
 !-----elements found in the cube file according to the UFF tabulation 
-      subroutine VDW_radii_array(atoms_array,vdw_radii)
-      include "REPEAT_Qmu_variables.com"
+      subroutine VDW_radii_array(atoms_array, vdw_radii)
       integer atoms_array(n_atoms_max), i
+      double precision vdw_radii(n_atoms_max)
 
       double precision vdw_radii_file(n_atoms_type_max) 
 
