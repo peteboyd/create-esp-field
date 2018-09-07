@@ -72,7 +72,7 @@ c     in the cif file.
       integer i_atom, seed, i_dim, i, j, k, i_neigh_k, n_loop,
      & i_neigh_j, i_neigh_i, i_extra, i_loop, j_dim, loopcount
     
-      integer natms, idum, ind 
+      integer idum, ind 
       double precision, allocatable :: q_part(:)
       double precision, allocatable, dimension(:,:) :: atom_pos
       double precision, allocatable, dimension(:,:) :: atom_pos_frac
@@ -122,7 +122,7 @@ c      call process_box
       call VDW_radii_array(atom_number,vdw_radii)
       Phi_SIC = 0.d0
       Phi_EXCL = 0.d0
-      do i=1,natms
+      do i=1,n_atoms
         if((xfrac).and.(yfrac).and.(zfrac))then
             tmpx = atom_pos_frac(i,1)*real_box_vector(1,1) + 
      &             atom_pos_frac(i,2)*real_box_vector(2,1) +
@@ -173,7 +173,7 @@ c      call process_box
      &blen/n_grid(2), 
      &clen/n_grid(3)
 
-c      do i_atom = 1, natms
+c      do i_atom = 1, n_atoms
 c        write(*,*)atom_number(i_atom)
 c      end do
 c      call exit(1)
@@ -201,7 +201,7 @@ c       write(*,*) "# of cells in",j_dim, "direction: ", NMAX(j_dim)
            grid_pos_frac(1) = dble(i-1)/dble(n_grid(1))
            grid_pos_frac(2) = dble(j-1)/dble(n_grid(2))
            grid_pos_frac(3) = dble(k-1)/dble(n_grid(3)) 
-           do i_atom=1, natms
+           do i_atom=1, n_atoms
              delta_fdist(1) = grid_pos_frac(1)-atom_pos_frac(i_atom, 1)
              delta_fdist(2) = grid_pos_frac(2)-atom_pos_frac(i_atom, 2)
              delta_fdist(3) = grid_pos_frac(3)-atom_pos_frac(i_atom, 3)
@@ -244,7 +244,7 @@ c       write(*,*) "# of cells in",j_dim, "direction: ", NMAX(j_dim)
             grid_pos_frac(1) = dble(i-1)/dble(n_grid(1))
             grid_pos_frac(2) = dble(j-1)/dble(n_grid(2))
             grid_pos_frac(3) = dble(k-1)/dble(n_grid(3)) 
-            do i_atom=1, natms
+            do i_atom=1, n_atoms
               delta_fdist(1) = grid_pos_frac(1)-atom_pos_frac(i_atom,1)
               delta_fdist(2) = grid_pos_frac(2)-atom_pos_frac(i_atom,2)
               delta_fdist(3) = grid_pos_frac(3)-atom_pos_frac(i_atom,3)
@@ -315,7 +315,7 @@ c***********************************************************************
       write(10,*)"*****************************************"
 
 !-----Writing the number of atoms and origin
-      write(10,'(i5,3f12.6)') natms, 
+      write(10,'(i5,3f12.6)') n_atoms,
      &      (axis_zero(i_dim), i_dim=1,n_dim)
 
 !-----Writing the voxels arrray
@@ -326,7 +326,7 @@ c***********************************************************************
       write(10,'(i5,3f12.6)')n_grid(3), 
      &      (axis_vector(3,i_dim), i_dim=1,3)
 
-      do i_atom=1, natms
+      do i_atom=1, n_atoms
 c        write(*,*)atom_number(i_atom),atom_index(i_atom),
 c     &atom_pos(i_atom,1:3)
         write(10,'(2i5,3f12.6)')atom_number(i_atom), atom_index(i_atom),
@@ -1077,7 +1077,7 @@ C    ****************************************************************
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   
-      subroutine scancif(ncif,ciffile,natms, loopcount)
+      subroutine scancif(ncif,ciffile,n_atoms, loopcount)
 c*********************************************************************
 c
 c     routine to scan cif file to determine number of atoms
@@ -1085,7 +1085,7 @@ c
 c*********************************************************************
       implicit none
       logical done,safe,loopchk,atmchk,entrychk,chgchk
-      integer ncif,natms
+      integer ncif,n_atoms
       integer i,idum, loop_count, iatm, loopcount
       character*100 ciffile
       character(len=lenrec), dimension(100) :: loops
@@ -1154,7 +1154,7 @@ c                    write(*,*)record
          write(*,*) "ERROR: there were no charges in the cif"
          call exit(1)
       end if
-      natms=iatm 
+      n_atoms=iatm 
       return
       end subroutine scancif
 
