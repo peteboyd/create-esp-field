@@ -167,10 +167,10 @@ c          call Ewald_excl_term(q_part(i),q_part(j),dist,Phi_EXCL)
 c
 c        end do
       end do
-      Phi_SIC = Phi_SIC*k_esp
-      write(*,'(a,2f12.6)')
-     &"Self Interaction and Exclusion terms from Ewald sum:",
-     &Phi_SIC,Phi_EXCL
+c      Phi_SIC = Phi_SIC*k_esp
+c      write(*,'(a,2f12.6)')
+c     &"Self Interaction and Exclusion terms from Ewald sum:",
+c     &Phi_SIC,Phi_EXCL
       write(*,'(a,3f12.6)')"Exact spacing of grid points = ",
      &alen/n_grid(1),
      &blen/n_grid(2), 
@@ -276,7 +276,7 @@ c       write(*,*) "# of cells in",j_dim, "direction: ", NMAX(j_dim)
               Phi_sum = q_part(i_atom)*(Phi_real + Phi_recp)*k_esp
               V_coul(i,j,k) = V_coul(i,j,k) + Phi_sum
             enddo
-            V_coul(i,j,k) = V_coul(i,j,k) - Phi_SIC - Phi_EXCL
+c            V_coul(i,j,k) = V_coul(i,j,k) - Phi_SIC - Phi_EXCL
           endif
         end do 
        end do
