@@ -1,4 +1,4 @@
-FC = gfortran
+FC = ifort
 FFLAGS = -O3
 all: create-esp-field 
 

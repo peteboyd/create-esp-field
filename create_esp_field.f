@@ -4,7 +4,7 @@
 !-----General parameters
       integer n_dim, n_atoms_max, n_atoms_type_max, voxels_max_1d,
      & MAXK, KMAX, KSQMAX, order_type_max, type_list_max
-       parameter(n_dim=3,n_atoms_max=900,n_atoms_type_max=107,
+       parameter(n_dim=3,n_atoms_max=5000,n_atoms_type_max=107,
      & voxels_max_1d=3000000,MAXK=5000,KMAX=7,KSQMAX=49,
      & order_type_max=50,type_list_max=80)
 
@@ -29,7 +29,7 @@ c     in atomic units (hartree*bohr/e)
 c     Daniele's chioce to add an aditional space outside of the vdw
 c     radii to ignore ESP contribution (in Angstrom)
       double precision DO_FACTOR
-      parameter(DO_FACTOR=1.5)
+      parameter(DO_FACTOR=1.0)
 !-----Input section
       integer flag_cutoff, fit_RESP, symm_flag, const_flag, 
      & q_tot(4)
@@ -138,36 +138,39 @@ c      call process_box
             atom_pos(i,3) = tmpz
         end if
         ! compute EWALD SIC terms
-        Phi_SIC = Phi_SIC + q_part(i)*q_part(i)
+        !Phi_SIC = Phi_SIC + q_part(i)*q_part(i)
         ! compute EWALD Excluded atom terms
-        do j = 1, i-1
-          ! compute distance in fractional coordinates
-          adf = atom_pos_frac(i,1) - atom_pos_frac(j,1)
-          bdf = atom_pos_frac(i,2) - atom_pos_frac(j,2)
-          cdf = atom_pos_frac(i,3) - atom_pos_frac(j,3)
-
-          ! find minimum image distance
-          adf = adf - dble(nint(adf))
-          bdf = bdf - dble(nint(bdf))
-          cdf = cdf - dble(nint(cdf))
-
-          ! convert to cartesian
-          xdf = adf*real_box_vector(1,1) + 
-     &          bdf*real_box_vector(2,1) +
-     &          cdf*real_box_vector(3,1)
-          ydf = adf*real_box_vector(1,2) + 
-     &          bdf*real_box_vector(2,2) +
-     &          cdf*real_box_vector(3,2)
-          zdf = adf*real_box_vector(1,3) + 
-     &          bdf*real_box_vector(2,3) +
-     &          cdf*real_box_vector(3,3)
-          dist = sqrt(xdf*xdf + ydf*ydf + zdf*zdf)
-
-          call Ewald_excl_term(q_part(i),q_part(j),dist,Phi_EXCL)
-
-        end do
+c        do j = 1, i-1
+c          ! compute distance in fractional coordinates
+c          adf = atom_pos_frac(i,1) - atom_pos_frac(j,1)
+c          bdf = atom_pos_frac(i,2) - atom_pos_frac(j,2)
+c          cdf = atom_pos_frac(i,3) - atom_pos_frac(j,3)
+c
+c          ! find minimum image distance
+c          adf = adf - dble(nint(adf))
+c          bdf = bdf - dble(nint(bdf))
+c          cdf = cdf - dble(nint(cdf))
+c
+c          ! convert to cartesian
+c          xdf = adf*real_box_vector(1,1) + 
+c     &          bdf*real_box_vector(2,1) +
+c     &          cdf*real_box_vector(3,1)
+c          ydf = adf*real_box_vector(1,2) + 
+c     &          bdf*real_box_vector(2,2) +
+c     &          cdf*real_box_vector(3,2)
+c          zdf = adf*real_box_vector(1,3) + 
+c     &          bdf*real_box_vector(2,3) +
+c     &          cdf*real_box_vector(3,3)
+c          dist = sqrt(xdf*xdf + ydf*ydf + zdf*zdf)
+c
+c          call Ewald_excl_term(q_part(i),q_part(j),dist,Phi_EXCL)
+c
+c        end do
       end do
       Phi_SIC = Phi_SIC*k_esp
+      write(*,'(a,2f12.6)')
+     &"Self Interaction and Exclusion terms from Ewald sum:",
+     &Phi_SIC,Phi_EXCL
       write(*,'(a,3f12.6)')"Exact spacing of grid points = ",
      &alen/n_grid(1),
      &blen/n_grid(2), 
