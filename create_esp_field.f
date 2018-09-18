@@ -275,6 +275,7 @@ c       write(*,*) "# of cells in",j_dim, "direction: ", NMAX(j_dim)
 
               Phi_sum = q_part(i_atom)*(Phi_real + Phi_recp)*k_esp
               V_coul(i,j,k) = V_coul(i,j,k) + Phi_sum
+              !write(*,*)Phi_real,Phi_recp,V_coul(i,j,k)
             enddo
 c            V_coul(i,j,k) = V_coul(i,j,k) - Phi_SIC - Phi_EXCL
           endif
@@ -696,18 +697,18 @@ c***********************************************************************
          RKY = recip_box_vector(1,2)*REAL(KX) + 
      &   recip_box_vector(2,2)*REAL(KY) +         
      &   recip_box_vector(3,2)*REAL(KZ)
-
          RKZ = recip_box_vector(1,3)*REAL(KX) + 
      &   recip_box_vector(2,3)*REAL(KY) +         
      &   recip_box_vector(3,3)*REAL(KZ)
 
          KSQ = KX * KX + KY * KY + KZ * KZ
-            
          IF ((KSQ.LT.KSQMAX).AND.(KSQ.NE.0)) THEN
            TOTK = TOTK + 1
            IF (TOTK.GT.MAXK) STOP 'KVEC IS TOO SMALL'
            RKSQ = RKX * RKX + RKY * RKY + RKZ * RKZ
            KVEC(TOTK) = (2*TWOPI/Box_volume) * EXP(-beta*RKSQ) / RKSQ
+           !PB - DEBUG
+           !write(*,*)KVEC(TOTK),RKSQ,KSQ,KX,KY,KZ,RKX,RKY,RKZ
          ENDIF            
         END DO
        END DO
@@ -729,7 +730,6 @@ c***********************************************************************
       RX = delta_r(1)
       RY = delta_r(2)
       RZ = delta_r(3)
-
       EIKX(0) = (1.0, 0.0)
       EIKY(0) = (1.0, 0.0)
       EIKZ(0) = (1.0, 0.0)
@@ -748,7 +748,6 @@ c***********************************************************************
      & recip_box_vector(3,2)*RY + recip_box_vector(3,3)*RZ),
      & SIN(recip_box_vector(3,1)*RX + 
      & recip_box_vector(3,2)*RY + recip_box_vector(3,3)*RZ))
-
       EIKY(-1) = CONJG (EIKY(1))
       EIKZ(-1) = CONJG (EIKZ(1))
 
@@ -766,7 +765,7 @@ c***********************************************************************
          EIKZ(-KZ) = CONJG ( EIKZ(KZ) )
       END DO
 
-      Phi = 0.
+      Phi = 0.d0
       TOTK = 0
      
       DO KX = 0, KMAX
@@ -788,13 +787,12 @@ c***********************************************************************
      &            recip_box_vector(2,input_dim)*REAL(KY) +         
      &            recip_box_vector(3,input_dim)*REAL(KZ)
                   Phi = Phi + FACTOR * KVEC(TOTK) * 
-     &            real((0.,1.)*EIKR) * RKvec 
+     &            real((0.,1.)*EIKR) * RKvec
                  end if
               ENDIF
            END DO
         END DO
       END DO
-      
       end subroutine
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -835,7 +833,6 @@ c***********************************************************************
         end do
        end do
       end do
-
       end subroutine
 
       subroutine Ewald_excl_term(qi,qj,dist,Phi_EXCL)
@@ -1015,14 +1012,14 @@ C    ****************************************************************
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !-----Subroutine to compute the cross product of two vectors
-      Subroutine Vect_Cross(a,b,ab)
+      Subroutine Vect_Cross(v1,v2,v3)
       Implicit NONE
 
-      double precision a(3),b(3),ab(3)
+      double precision v1(3),v2(3),v3(3)
 
-      ab(1)=a(2)*b(3)-a(3)*b(2)
-      ab(2)=a(3)*b(1)-a(1)*b(3)
-      ab(3)=a(1)*b(2)-a(2)*b(1)
+      v3(1)=v1(2)*v2(3)-v1(3)*v2(2)
+      v3(2)=v1(3)*v2(1)-v1(1)*v2(3)
+      v3(3)=v1(1)*v2(2)-v1(2)*v2(1)
       
       End subroutine
 
@@ -1611,15 +1608,18 @@ c     create axis vectors
       do i_dim=1, n_dim
        recip_box_vector(3,i_dim) = (2*pi/Box_volume)*ab(i_dim)
       end do
-      call Vect_Cross(c,a,ab)      
+      call Vect_Cross(c,a,ab)
       do i_dim=1, n_dim
        recip_box_vector(2,i_dim) = (2*pi/Box_volume)*ab(i_dim)
       end do      
       call Vect_Cross(b,c,ab)      
       do i_dim=1, n_dim
        recip_box_vector(1,i_dim) = (2*pi/Box_volume)*ab(i_dim)
-      end do       
-
+      end do
+c     INTEL FORTRAN SOMTIMES CHANGES THE INDICES OF THE VECTORS
+C     CREATING INCONSISTENCIES IN THE INVERSION.
+      !write(*,*)real_box_vector 
+      !write(*,*)recip_box_vector
       return
       end subroutine getcell
 

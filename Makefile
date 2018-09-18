@@ -1,5 +1,5 @@
 FC = gfortran
-FFLAGS = -O3
+FFLAGS = -O3 
 all: create-esp-field 
 
 create-esp-field: 
