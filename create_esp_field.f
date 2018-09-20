@@ -28,8 +28,8 @@ c     in atomic units (hartree*bohr/e)
       parameter(k_esp=1.d0/(4.d0*pi*perm)) 
 c     Daniele's chioce to add an aditional space outside of the vdw
 c     radii to ignore ESP contribution (in Angstrom)
-      double precision DO_FACTOR
-      parameter(DO_FACTOR=1.0)
+      double precision DO_FACTOR,do_fb
+      parameter(DO_FACTOR=1.d-06)
 !-----Input section
       integer flag_cutoff, fit_RESP, symm_flag, const_flag, 
      & q_tot(4)
@@ -101,6 +101,7 @@ c$$$      q_part_max = 20.0
           write(*,*)"Usage: create-esp-field [cif file] [cube spacing]"
           call exit(1)
       end if
+      do_fb = DO_FACTOR*angs2bohr
 c     start timing
       call timchk(0, time)
 c     get filename from command line 
@@ -199,7 +200,7 @@ c       write(*,*) "# of cells in",j_dim, "direction: ", NMAX(j_dim)
         do i=1, n_grid(1)
          V_coul(i,j,k) = 0.d0
          V_flag(i,j,k) = 1
-         if(DO_FACTOR.ne.0)then
+         if(do_fb.gt.0)then
            ! flag if not to compute ESP at this grid point
            grid_pos_frac(1) = dble(i-1)/dble(n_grid(1))
            grid_pos_frac(2) = dble(j-1)/dble(n_grid(2))
@@ -226,7 +227,8 @@ c       write(*,*) "# of cells in",j_dim, "direction: ", NMAX(j_dim)
              end do
              ! check for nearby atoms
              dist = sqrt(dist)
-             if(dist.le.(vdw_radii(i_atom)+DO_FACTOR))then
+             if(dist.le.
+     &(vdw_radii(i_atom)+do_fb))then
                V_flag(i,j,k)=0
              endif
            end do 
