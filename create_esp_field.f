@@ -1086,7 +1086,7 @@ c     routine to scan cif file to determine number of atoms
 c
 c*********************************************************************
       implicit none
-      logical done,safe,loopchk,atmchk,entrychk,chgchk
+      logical done,safe,loopchk,atmchk,entrychk,chgchk,chgfound
       integer ncif,n_atoms
       integer i,idum, loop_count, iatm, loopcount
       character*100 ciffile
@@ -1097,6 +1097,7 @@ c*********************************************************************
       atmchk=.false.
       chgchk=.false.
       entrychk = .false.
+      chgfound = .false.
       open(ncif,file=ciffile,status='old')
       iatm=0
  
@@ -1104,7 +1105,8 @@ c*********************************************************************
         call getrec(safe,ncif)
         call strip(record,lenrec)
         if(loopchk)then
-            if(findstring('_',record,idum))then
+            !if(findstring('_',record,idum))then
+            if(record(1).eq.'_')then
                 loop_count = loop_count + 1
 c               check for atomic coordinate positions to flag
 c               atom entries
@@ -1116,6 +1118,7 @@ c               atom entries
      &      .or.(findstring('_atom_type_charge',record,idum)).or.
      &      (findstring('_atom_type_partial_charge',record,idum)))then
                     chgchk=.true.
+                    chgfound=.true.
                 end if
             else
                 if(atmchk)then
@@ -1134,6 +1137,7 @@ c               atom entries
             loop_count = 0
             entrychk=.false.
             atmchk=.false.
+            chgchk=.false.
             loopchk=.true.
         end if
         if((.not.loopchk).and.(entrychk))then
@@ -1152,7 +1156,7 @@ c                    write(*,*)record
       end do
 
       close(ncif)
-      if(.not.chgchk)then
+      if(.not.chgfound)then
          write(*,*) "ERROR: there were no charges in the cif"
          call exit(1)
       end if
@@ -1219,7 +1223,8 @@ c        call lowcase(record,7)
           gamma=dblstr(record,lenrec,idum)
         end if
         if(loopchk)then
-            if(findstring('_',record,idum))then
+            !if(findstring('_',record,idum))then
+            if(record(1).eq.'_')then
                 loop_count = loop_count + 1
 c               check for atomic coordinate positions to flag
 c               atom entries
