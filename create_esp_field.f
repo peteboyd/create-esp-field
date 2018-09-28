@@ -4,7 +4,7 @@
 !-----General parameters
       integer n_dim, n_atoms_max, n_atoms_type_max, voxels_max_1d,
      & MAXK, KMAX, KSQMAX, order_type_max, type_list_max
-       parameter(n_dim=3,n_atoms_max=5000,n_atoms_type_max=107,
+      parameter(n_dim=3,n_atoms_max=5000,n_atoms_type_max=107,
      & voxels_max_1d=3000000,MAXK=5000,KMAX=7,KSQMAX=49,
      & order_type_max=50,type_list_max=80)
 
@@ -30,6 +30,7 @@ c     Daniele's chioce to add an aditional space outside of the vdw
 c     radii to ignore ESP contribution (in Angstrom)
       double precision DO_FACTOR,do_fb
       parameter(DO_FACTOR=1.d-06)
+      !parameter(DO_FACTOR=-1.5d0)
 !-----Input section
       integer flag_cutoff, fit_RESP, symm_flag, const_flag, 
      & q_tot(4)
@@ -48,7 +49,7 @@ c     radii to ignore ESP contribution (in Angstrom)
       common/int_process/counter_grid
 
       double precision V_pot_good(voxels_max_1d),
-     & grid_pos_good(voxels_max_1d,n_dim), sum_good
+     & grid_pos_good(voxels_max_1d,n_dim), sum_good, rand
       common/dbl_process/V_pot_good, grid_pos_good, sum_good
 
 
@@ -236,11 +237,15 @@ c       write(*,*) "# of cells in",j_dim, "direction: ", NMAX(j_dim)
         end do
        end do
       end do
-
+    
+      !call random_seed()
       call k_vectors_coeff
       do k=1, n_grid(3)
        do j=1, n_grid(2)
         do i=1, n_grid(1)
+          !if(V_flag(i,j,k).eq.0)then
+            !call random_number(rand)
+            !V_coul(i,j,k) = rand*5.d0
           if(V_flag(i,j,k).eq.1)then
             do i_dim=1, 3
               grid_pos(i_dim) = ((i-1)*axis_vector(1,i_dim) + 
@@ -271,13 +276,9 @@ c       write(*,*) "# of cells in",j_dim, "direction: ", NMAX(j_dim)
 !--------   Creating a file with the Coulomb potential for testing purposes
               call Ewald_recp_sum(0,1,delta_dist,Phi_recp)
               call Ewald_real_sum(0,1,grid_pos,atom_pos_tmp,Phi_real)
-              ! TODO(pboyd): add self interaction correction.
-              ! TODO(pboyd): remove interactions between MOF atoms in
-              ! RECP sum.
 
               Phi_sum = q_part(i_atom)*(Phi_real + Phi_recp)*k_esp
               V_coul(i,j,k) = V_coul(i,j,k) + Phi_sum
-              !write(*,*)Phi_real,Phi_recp,V_coul(i,j,k)
             enddo
 c            V_coul(i,j,k) = V_coul(i,j,k) - Phi_SIC - Phi_EXCL
           endif
@@ -929,7 +930,7 @@ C    ****************************************************************
       c(3) = real_box_vector(3,3)
 
       call Vect_Cross(b,c,ab)
-      Box_Volume = Vect_Dot(a,ab)
+      Box_volume = Vect_Dot(a,ab)
       write(*,*) "------PRINTING SOME USEFUL INFO---------"
       write(*,*) "----------------------------------------"
       write(*,*) "----------------------------------------"
@@ -1609,7 +1610,7 @@ c     create axis vectors
       c(2) = real_box_vector(3,2)
       c(3) = real_box_vector(3,3)
       call Vect_Cross(b,c,ab)
-      Box_Volume = Vect_Dot(a,ab)
+      Box_volume = Vect_Dot(a,ab)
 !-----Creating the reciprocal space box
       call Vect_Cross(a,b,ab)      
       do i_dim=1, n_dim
@@ -1625,8 +1626,6 @@ c     create axis vectors
       end do
 c     INTEL FORTRAN SOMTIMES CHANGES THE INDICES OF THE VECTORS
 C     CREATING INCONSISTENCIES IN THE INVERSION.
-      !write(*,*)real_box_vector 
-      !write(*,*)recip_box_vector
       return
       end subroutine getcell
 
@@ -2116,4 +2115,3 @@ c   END OF PROGRAM
 c######################################################################
 
       end program 
-
